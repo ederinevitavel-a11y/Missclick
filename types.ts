@@ -1,20 +1,70 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
 
-# Run and deploy your AI Studio app
+export type RespawnCategory = 
+  | "Ab'Dendriel" | "Ankrahmun" | "Carlin" | "Darashia" | "Edron" 
+  | "Farmine" | "Feyrist" | "Gnomprona" | "Gray Island" | "Issavi" 
+  | "Marapur" | "Oramond" | "Port Hope" | "Roshamuul" | "Rotten Blood" 
+  | "Venore" | "Warzone" | "Yalahar" | "Criatura Boostada";
 
-This contains everything you need to run your app locally.
+export interface Claim {
+  id: string;
+  userId: string; // ID of the user who created the claim (Essential for RLS UI checks)
+  playerName: string;
+  phone?: string; // WhatsApp number
+  startTime: number; // timestamp
+  durationMinutes: number;
+  endTime: number; // timestamp
+  isNext: boolean;
+  releasedEarly?: boolean; // New flag: True if user canceled but queue exists
+}
 
-View your app in AI Studio: https://ai.studio/apps/2aca2b56-9984-4ef3-a9b1-17905d211bc1
+export interface Respawn {
+  id: string;
+  name: string;
+  category: RespawnCategory;
+  tier: number;
+  isSpecial: boolean; // True for 3h 15m max, False for 2h 20m
+  currentClaim: Claim | null;
+  nextQueue: Claim[];
+}
 
-## Run Locally
+export interface NewClaimData {
+  playerName: string;
+  phone?: string;
+  durationMinutes: number;
+}
 
-**Prerequisites:**  Node.js
+export interface GuildMember {
+  name: string;
+  title: string;
+  rank: string;
+  vocation: string;
+  level: number;
+  joined: string;
+  status: 'online' | 'offline';
+}
 
+export interface BlockedUser {
+  id: string;
+  playerName: string;
+  reason: string;
+  blockedBy: string;
+  createdAt: string;
+}
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+export interface FixedRespawn {
+  id: string;
+  respawnName: string;
+  playerName: string;
+  dayOfWeek: string; // e.g., "Segunda", "Terça", or "Diário"
+  startTime: string; // e.g., "14:00"
+  endTime: string;   // e.g., "16:00"
+  createdAt?: string;
+}
+
+export interface Warning {
+  id: string;
+  playerName: string;
+  reason: string;
+  date: string;
+  createdAt?: string;
+}
