@@ -9,6 +9,8 @@ interface LoginPageProps {
 const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const [isRegister, setIsRegister] = useState(false);
   
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -18,15 +20,42 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  const toggleMode = (mode: 'LOGIN' | 'REGISTER') => {
+  const toggleMode = (mode: 'LOGIN' | 'REGISTER' | 'FORGOT') => {
     setIsRegister(mode === 'REGISTER');
+    setIsForgotPassword(mode === 'FORGOT');
     setError('');
     setSuccessMessage('');
     setIsLoading(false);
   };
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMessage('');
+    setIsLoading(true);
+
+    try {
+      if (!email) throw new Error("O email é obrigatório para recuperar a senha");
+      
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      });
+
+      if (resetError) throw resetError;
+      
+      setSuccessMessage('Email de recuperação enviado! Verifique sua caixa de entrada.');
+      setIsForgotPassword(false);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Falha ao enviar email de recuperação');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isForgotPassword) return handleForgotPassword(e);
     setError('');
     setSuccessMessage('');
     setIsLoading(true);
@@ -38,10 +67,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
         // --- Guild Membership Validation ---
         const guilds = ['Missclick', 'Caxambu'];
         let isMember = false;
+        let apiError = false;
         
         for (const guildName of guilds) {
             try {
                 const response = await fetch(`https://api.tibiadata.com/v4/guild/${guildName}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
                 if (data && data.guild && data.guild.members) {
                     const memberExists = data.guild.members.some((m: any) => 
@@ -54,11 +85,18 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 }
             } catch (err) {
                 console.error(`Failed to fetch guild ${guildName}:`, err);
+                apiError = true;
             }
         }
 
-        if (!isMember) {
+        // Se a API do TibiaData falhar, permitimos o cadastro mas avisamos no log
+        // Isso evita que o usuário fique travado se o serviço externo cair
+        if (!isMember && !apiError) {
             throw new Error(`O personagem "${name}" não foi encontrado nas guildas Missclick ou Caxambu.`);
+        }
+        
+        if (apiError && !isMember) {
+            console.warn("TibiaData API is down or unreachable. Proceeding with registration without guild validation.");
         }
         // --- End of Validation ---
 
@@ -100,11 +138,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       
       // Traduz erros comuns do Supabase para melhor UX
       if (msg.includes('Failed to fetch')) {
-         msg = 'Erro de conexão: Não foi possível alcançar o servidor. Verifique sua internet ou se o projeto Supabase está ativo.';
+         msg = 'Erro de conexão: Verifique sua internet ou se o serviço está temporariamente indisponível.';
       } else if (msg.includes('Email not confirmed')) {
          msg = 'Email pendente de confirmação. Verifique sua caixa de entrada.';
       } else if (msg.includes('Invalid login credentials')) {
          msg = 'Email ou senha incorretos.';
+      } else if (msg.includes('User already registered')) {
+         msg = 'Este email já está cadastrado.';
       }
       
       setError(msg);
@@ -152,25 +192,34 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-cyan-500 to-transparent opacity-50"></div>
 
             {/* Tab Switcher */}
-            <div className="flex p-1 bg-[#0b1121] rounded-lg mb-6 border border-slate-800 relative">
-                <button 
-                    onClick={() => toggleMode('LOGIN')}
-                    className={`flex-1 py-2 text-xs font-bold uppercase tracking-widest rounded-md transition-all duration-300 ${!isRegister ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-                >
-                    Entrar
-                </button>
-                <button 
-                    onClick={() => toggleMode('REGISTER')}
-                    className={`flex-1 py-2 text-xs font-bold uppercase tracking-widest rounded-md transition-all duration-300 ${isRegister ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-                >
-                    Cadastrar
-                </button>
-            </div>
+            {!isForgotPassword && (
+                <div className="flex p-1 bg-[#0b1121] rounded-lg mb-6 border border-slate-800 relative">
+                    <button 
+                        onClick={() => toggleMode('LOGIN')}
+                        className={`flex-1 py-2 text-xs font-bold uppercase tracking-widest rounded-md transition-all duration-300 ${!isRegister ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                        Entrar
+                    </button>
+                    <button 
+                        onClick={() => toggleMode('REGISTER')}
+                        className={`flex-1 py-2 text-xs font-bold uppercase tracking-widest rounded-md transition-all duration-300 ${isRegister ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                        Cadastrar
+                    </button>
+                </div>
+            )}
+
+            {isForgotPassword && (
+                <div className="mb-6 text-center">
+                    <h3 className="text-white font-bold uppercase tracking-widest text-sm mb-2">Recuperar Senha</h3>
+                    <p className="text-slate-500 text-[10px] uppercase tracking-wider">Enviaremos um link para o seu email</p>
+                </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-5">
                 
                 {/* NAME FIELD (Only for Register) */}
-                {isRegister && (
+                {isRegister && !isForgotPassword && (
                     <div className="space-y-2 animate-in slide-in-from-left-2 fade-in duration-300">
                         <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-1">NOME DO PERSONAGEM</label>
                         <div className="relative group">
@@ -187,7 +236,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 )}
 
                 {/* PHONE FIELD (Only for Register) */}
-                {isRegister && (
+                {isRegister && !isForgotPassword && (
                     <div className="space-y-2 animate-in slide-in-from-left-2 fade-in duration-300">
                         <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-1">WHATSAPP (OPCIONAL)</label>
                         <div className="relative group">
@@ -219,19 +268,30 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                     </div>
                 </div>
 
-                <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-1">SENHA</label>
-                    <div className="relative group">
-                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-cyan-400 transition-colors" size={18} />
-                        <input 
-                            type="password" 
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="••••••••"
-                            className="w-full bg-[#0b1121] border border-slate-700 rounded-lg py-3 pl-12 pr-4 text-sm text-slate-200 placeholder-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
-                        />
+                {!isForgotPassword && (
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-center ml-1">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">SENHA</label>
+                            <button 
+                                type="button"
+                                onClick={() => toggleMode('FORGOT')}
+                                className="text-[10px] text-cyan-500 hover:text-cyan-400 uppercase font-bold tracking-widest transition-colors"
+                            >
+                                Esqueci minha senha
+                            </button>
+                        </div>
+                        <div className="relative group">
+                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-cyan-400 transition-colors" size={18} />
+                            <input 
+                                type="password" 
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="••••••••"
+                                className="w-full bg-[#0b1121] border border-slate-700 rounded-lg py-3 pl-12 pr-4 text-sm text-slate-200 placeholder-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
+                            />
+                        </div>
                     </div>
-                </div>
+                )}
 
                 {successMessage && (
                     <div className="p-3 rounded bg-emerald-950/30 border border-emerald-900/50 text-emerald-400 text-xs text-center font-medium animate-in slide-in-from-top-2">
@@ -257,7 +317,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                         </>
                     ) : (
                         <>
-                            {isRegister ? (
+                            {isForgotPassword ? (
+                                <>
+                                    <span className="uppercase tracking-widest text-xs">RECUPERAR SENHA</span>
+                                    <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                                </>
+                            ) : isRegister ? (
                                 <>
                                     <span className="uppercase tracking-widest text-xs">CRIAR CONTA</span>
                                     <UserPlus size={16} className="group-hover:translate-x-1 transition-transform" />
@@ -274,6 +339,16 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                     {/* Shine Effect */}
                     {!isLoading && <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent z-10"></div>}
                 </button>
+
+                {isForgotPassword && (
+                    <button 
+                        type="button"
+                        onClick={() => toggleMode('LOGIN')}
+                        className="w-full text-center text-[10px] text-slate-500 hover:text-slate-300 uppercase font-bold tracking-[0.2em] transition-colors"
+                    >
+                        Voltar para o Login
+                    </button>
+                )}
 
             </form>
 
