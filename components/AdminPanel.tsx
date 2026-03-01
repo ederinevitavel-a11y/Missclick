@@ -10,6 +10,7 @@ interface AdminPanelProps {
   blockedUsers: BlockedUser[];
   fixedRespawns: FixedRespawn[];
   warnings: Warning[];
+  guildMembers: string[];
   onClose: () => void;
   onForceDelete: (claimId: string) => Promise<void>;
   onRefreshData: () => Promise<void>;
@@ -17,7 +18,7 @@ interface AdminPanelProps {
 
 type Tab = 'CLAIMS' | 'MEMBERS' | 'RESPAWNS' | 'BLOCKS' | 'USERS' | 'FIXED' | 'WARNINGS';
 
-const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers, fixedRespawns, warnings, onClose, onForceDelete, onRefreshData }) => {
+const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers, fixedRespawns, warnings, guildMembers, onClose, onForceDelete, onRefreshData }) => {
   const [activeTab, setActiveTab] = useState<Tab>('CLAIMS');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [registeredUsers, setRegisteredUsers] = useState<any[]>([]);
@@ -41,6 +42,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
   const [syncing, setSyncing] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [isSavingMembers, setIsSavingMembers] = useState(false);
+  const [newManualMember, setNewManualMember] = useState('');
 
   // Respawn Management State
   const [newRespawn, setNewRespawn] = useState({ id: '', name: '', category: 'Darashia', tier: 1, isSpecial: false });
@@ -325,9 +328,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
         const data = await response.json();
         
         if (data && data.guild && data.guild.members) {
-            // Se já houver membros, podemos mesclar ou substituir. 
-            // Para simplificar, vamos substituir pela guilda selecionada ou mesclar se o usuário preferir.
-            // Aqui vamos apenas definir os membros da guilda selecionada.
             setMembers(data.guild.members);
             const now = new Date();
             setLastSyncTime(`${guildName} @ ${now.toLocaleTimeString()}`);
@@ -341,6 +341,81 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
         }
     } finally {
         setSyncing(false);
+    }
+  };
+
+  const handleAuthorizeAll = async () => {
+    if (members.length === 0) return;
+    if (!confirm(`Deseja autorizar todos os ${members.length} membros listados?`)) return;
+
+    setIsSavingMembers(true);
+    try {
+        // We'll do this in chunks or one by one to avoid issues, 
+        // but Supabase upsert is better if we have a unique constraint.
+        // For now, let's just insert the names.
+        const memberNames = members.map(m => ({ player_name: m.name }));
+        
+        // Clear existing and insert new? Or just upsert?
+        // Let's upsert if possible, but we need a unique constraint on player_name.
+        // Assuming there's a unique constraint on player_name.
+        const { error } = await supabase
+            .from('guild_members')
+            .upsert(memberNames, { onConflict: 'player_name' });
+
+        if (error) throw error;
+        
+        alert("Membros autorizados com sucesso!");
+        await onRefreshData();
+    } catch (err: any) {
+        alert("Erro ao autorizar membros: " + err.message);
+    } finally {
+        setIsSavingMembers(false);
+    }
+  };
+
+  const handleToggleAuthorization = async (playerName: string, isAuthorized: boolean) => {
+    try {
+        if (isAuthorized) {
+            // Remove authorization
+            const { error } = await supabase
+                .from('guild_members')
+                .delete()
+                .eq('player_name', playerName);
+            if (error) throw error;
+        } else {
+            // Add authorization
+            const { error } = await supabase
+                .from('guild_members')
+                .insert({ player_name: playerName });
+            if (error) throw error;
+        }
+        await onRefreshData();
+    } catch (err: any) {
+        alert("Erro ao alterar autorização: " + err.message);
+    }
+  };
+
+  const handleAddManualMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newManualMember.trim()) return;
+
+    try {
+        const { error } = await supabase
+            .from('guild_members')
+            .insert({ player_name: newManualMember.trim() });
+        
+        if (error) {
+            if (error.code === '23505') {
+                alert("Este jogador já está na lista.");
+            } else {
+                throw error;
+            }
+        } else {
+            setNewManualMember('');
+            await onRefreshData();
+        }
+    } catch (err: any) {
+        alert("Erro ao adicionar membro: " + err.message);
     }
   };
 
@@ -739,6 +814,29 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
         {activeTab === 'MEMBERS' && (
             <div className="space-y-4 animate-in slide-in-from-bottom-2 fade-in">
                 
+                {/* Manual Add Member */}
+                <div className="bg-slate-900/50 p-4 rounded border border-slate-800">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                        <Plus size={14} /> Adicionar Membro Manualmente
+                    </h3>
+                    <form onSubmit={handleAddManualMember} className="flex gap-2">
+                        <input 
+                            type="text" 
+                            placeholder="Nome do Personagem" 
+                            value={newManualMember}
+                            onChange={e => setNewManualMember(e.target.value)}
+                            className="flex-1 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+                            required
+                        />
+                        <button 
+                            type="submit"
+                            className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-bold uppercase rounded transition-all"
+                        >
+                            Adicionar
+                        </button>
+                    </form>
+                </div>
+
                 {/* Control Bar */}
                 <div className="flex flex-col md:flex-row justify-between gap-4">
                     <div className="relative flex-1 max-w-md">
@@ -759,6 +857,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
                             </span>
                         )}
                         <button 
+                            onClick={handleAuthorizeAll}
+                            disabled={isSavingMembers || members.length === 0}
+                            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+                        >
+                            <Check size={12} />
+                            Autorizar Todos Listados
+                        </button>
+                        <button 
                             onClick={() => handleSyncGuild('Missclick')}
                             disabled={syncing}
                             className="px-3 py-2 bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-400 border border-cyan-800/50 rounded flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50 disabled:cursor-not-allowed"
@@ -778,7 +884,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
                 </div>
 
                 {/* Members Table */}
-                <div className="bg-slate-900/30 border border-slate-800 rounded-lg overflow-hidden backdrop-blur-sm h-[600px] flex flex-col">
+                <div className="bg-slate-900/30 border border-slate-800 rounded-lg overflow-hidden backdrop-blur-sm h-[500px] flex flex-col">
                     <div className="overflow-y-auto custom-scrollbar flex-grow">
                         <table className="w-full text-left border-collapse relative">
                             <thead className="sticky top-0 z-10">
@@ -787,49 +893,51 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
                                     <th className="p-4">Rank</th>
                                     <th className="p-4">Vocação</th>
                                     <th className="p-4">Level</th>
-                                    <th className="p-4 text-right">Status</th>
+                                    <th className="p-4 text-right">Acesso</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-800 text-sm">
                                 {filteredMembers.length > 0 ? (
-                                    filteredMembers.map((member, idx) => (
-                                        <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
-                                            <td className="p-3 pl-4 font-bold text-slate-200">
-                                                {member.name}
-                                                {member.title && <span className="block text-[10px] text-slate-500 font-normal italic">"{member.title}"</span>}
-                                            </td>
-                                            <td className="p-3 text-slate-400 text-xs font-medium">
-                                                {member.rank}
-                                            </td>
-                                            <td className="p-3 text-slate-400 text-xs">
-                                                {member.vocation}
-                                            </td>
-                                            <td className="p-3 text-slate-200 font-mono">
-                                                {member.level}
-                                            </td>
-                                            <td className="p-3 pr-4 text-right">
-                                                <div className="flex flex-col items-end gap-1">
-                                                    <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${member.status === 'online' ? 'bg-emerald-950/30 text-emerald-400 border-emerald-900/50' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
-                                                        <span className={`w-1.5 h-1.5 rounded-full ${member.status === 'online' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`}></span>
-                                                        {member.status}
-                                                    </div>
-                                                    {blockedUsers.some(b => b.playerName.toLowerCase() === member.name.toLowerCase()) && (
-                                                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-950/30 text-red-500 border border-red-900/50 text-[9px] font-bold uppercase tracking-tighter">
-                                                            <ShieldAlert size={10} /> BLOQUEADO
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))
+                                    filteredMembers.map((member, idx) => {
+                                        const isAuthorized = guildMembers.some(m => m.toLowerCase() === member.name.toLowerCase());
+                                        return (
+                                            <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
+                                                <td className="p-3 pl-4 font-bold text-slate-200">
+                                                    {member.name}
+                                                    {member.title && <span className="block text-[10px] text-slate-500 font-normal italic">"{member.title}"</span>}
+                                                </td>
+                                                <td className="p-3 text-slate-400 text-xs font-medium uppercase">
+                                                    {member.rank}
+                                                </td>
+                                                <td className="p-3 text-slate-400 text-xs">
+                                                    {member.vocation}
+                                                </td>
+                                                <td className="p-3 text-slate-200 font-mono">
+                                                    {member.level}
+                                                </td>
+                                                <td className="p-3 pr-4 text-right">
+                                                    <button 
+                                                        onClick={() => handleToggleAuthorization(member.name, isAuthorized)}
+                                                        className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all border ${
+                                                            isAuthorized 
+                                                            ? 'bg-emerald-950/30 text-emerald-400 border-emerald-900/50 hover:bg-red-950/30 hover:text-red-400 hover:border-red-900/50' 
+                                                            : 'bg-slate-800 text-slate-500 border-slate-700 hover:bg-emerald-900/30 hover:text-emerald-400 hover:border-emerald-900/50'
+                                                        }`}
+                                                    >
+                                                        {isAuthorized ? 'Autorizado' : 'Não Autorizado'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
                                 ) : (
                                     <tr>
                                         <td colSpan={5} className="p-12 text-center text-slate-600">
                                             {members.length === 0 ? (
                                                 <div className="flex flex-col items-center">
                                                     <RefreshCw size={32} className="mb-3 opacity-20" />
-                                                    <p className="uppercase tracking-widest font-bold text-xs mb-2">Lista vazia</p>
-                                                    <p className="text-[10px] text-slate-600">Clique em Sync para carregar os dados da guilda.</p>
+                                                    <p className="uppercase tracking-widest font-bold text-xs mb-2">Lista da API Vazia</p>
+                                                    <p className="text-[10px] text-slate-600">Clique em Sync para carregar membros das guildas ou adicione manualmente.</p>
                                                 </div>
                                             ) : (
                                                 <p className="uppercase tracking-widest font-bold text-xs">Nenhum membro encontrado na busca.</p>
@@ -843,12 +951,36 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
                     
                     {/* Footer Stats */}
                     <div className="bg-slate-950 border-t border-slate-800 p-3 flex justify-between items-center text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                        <span>Total: {members.length}</span>
+                        <span>Listados (API): {members.length}</span>
                         <span className="flex gap-3">
-                            <span className="text-emerald-500">Online: {members.filter(m => m.status === 'online').length}</span>
-                            <span className="text-red-500">Bloqueados: {members.filter(m => blockedUsers.some(b => b.playerName.toLowerCase() === m.name.toLowerCase())).length}</span>
-                            <span>Offline: {members.filter(m => m.status === 'offline').length}</span>
+                            <span className="text-emerald-500">Autorizados (DB): {guildMembers.length}</span>
                         </span>
+                    </div>
+                </div>
+
+                {/* DB Members List (Manual Management) */}
+                <div className="bg-slate-900/30 border border-slate-800 rounded-lg overflow-hidden backdrop-blur-sm">
+                    <div className="p-4 border-b border-slate-800 bg-slate-950/50 flex justify-between items-center">
+                        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest">Membros Autorizados no Banco de Dados</h3>
+                    </div>
+                    <div className="max-h-[300px] overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                        {guildMembers.length > 0 ? (
+                            guildMembers.sort().map((name, idx) => (
+                                <div key={idx} className="flex items-center justify-between bg-slate-800/50 border border-slate-700 rounded px-3 py-2 group">
+                                    <span className="text-xs text-slate-200 font-medium truncate">{name}</span>
+                                    <button 
+                                        onClick={() => handleToggleAuthorization(name, true)}
+                                        className="text-slate-500 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="col-span-full py-8 text-center text-slate-600 text-xs uppercase font-bold tracking-widest">
+                                Nenhum membro autorizado no banco de dados.
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

@@ -10,6 +10,7 @@ import LoginPage from './components/LoginPage';
 import AdminPanel from './components/AdminPanel';
 import FixedRespawnsTab from './components/FixedRespawnsTab';
 import GuildRulesTab from './components/GuildRulesTab';
+import ResetPasswordPage from './components/ResetPasswordPage';
 import { calculateEndTime } from './utils/time';
 import { supabase } from './utils/supabaseClient';
 
@@ -31,11 +32,13 @@ function App() {
   const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
   const [fixedRespawns, setFixedRespawns] = useState<FixedRespawn[]>([]);
   const [warnings, setWarnings] = useState<Warning[]>([]);
+  const [guildMembers, setGuildMembers] = useState<string[]>([]);
   const [loadingClaims, setLoadingClaims] = useState(false);
   const [dataInitialized, setDataInitialized] = useState(false);
   
   // View State
   const [activeView, setActiveView] = useState<'CLAIMS' | 'FIXED' | 'RULES'>('CLAIMS');
+  const [isAccessDenied, setIsAccessDenied] = useState(false);
   
   // Modal States
   const [claimModalOpen, setClaimModalOpen] = useState(false);
@@ -43,6 +46,8 @@ function App() {
   
   const [activeRespawnId, setActiveRespawnId] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<'CLAIM' | 'NEXT'>('CLAIM');
+
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
 
   // --- Auth Effect ---
   useEffect(() => {
@@ -64,7 +69,11 @@ function App() {
 
     checkSession();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+            setIsResettingPassword(true);
+        }
+        
         if (session) {
             handleSession(session);
         } else {
@@ -79,7 +88,7 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleSession = (session: any) => {
+  const handleSession = async (session: any) => {
       setIsAuthenticated(true);
       setUserId(session.user.id);
       
@@ -88,19 +97,35 @@ function App() {
       const metaPhone = session.user.user_metadata?.phone;
       const emailName = session.user.email?.split('@')[0];
       
-      setUserName(metaName || emailName || 'Operator');
+      const pName = metaName || emailName || 'Operator';
+      setUserName(pName);
       setUserPhone(metaPhone || null);
 
       // Admin Check
-      if (session.user.email === 'admissclick@gmail.com') {
-          setIsAdmin(true);
-      } else {
-          setIsAdmin(false);
+      const isAdminUser = session.user.email === 'admissclick@gmail.com';
+      setIsAdmin(isAdminUser);
+      if (!isAdminUser) {
           setShowAdminPanel(false);
       }
       
-      refreshAllData();
+      // Fetch data and check access
+      await refreshAllData();
+      
+      // Check if user is in guild members list
+      // We do this after refreshAllData to ensure guildMembers is populated
   };
+
+  // Check access whenever guildMembers or userName changes
+  useEffect(() => {
+    if (isAuthenticated && userName && guildMembers.length > 0) {
+        const isMember = guildMembers.some(m => m.toLowerCase() === userName.toLowerCase());
+        if (!isMember && !isAdmin) {
+            setIsAccessDenied(true);
+        } else {
+            setIsAccessDenied(false);
+        }
+    }
+  }, [isAuthenticated, userName, guildMembers, isAdmin]);
 
   // --- Migration Effect ---
   useEffect(() => {
@@ -135,8 +160,26 @@ function App() {
         fetchRespawns(),
         fetchBlockedUsers(),
         fetchFixedRespawns(),
-        fetchWarnings()
+        fetchWarnings(),
+        fetchGuildMembers()
     ]);
+  };
+
+  const fetchGuildMembers = async () => {
+    try {
+        const { data, error } = await supabase.from('guild_members').select('player_name');
+        if (error) {
+            // If table doesn't exist yet, we might get an error. 
+            // We'll handle it gracefully.
+            console.error("Error fetching guild members:", error);
+            return;
+        }
+        if (data) {
+            setGuildMembers(data.map(m => m.player_name));
+        }
+    } catch (err) {
+        console.error("Unexpected error fetching guild members:", err);
+    }
   };
 
   const fetchWarnings = async () => {
@@ -542,6 +585,35 @@ function App() {
     return <div className="min-h-screen bg-[#0b1121] flex items-center justify-center"><RefreshCw className="animate-spin text-cyan-500" /></div>;
   }
 
+  if (isResettingPassword) {
+    return <ResetPasswordPage onComplete={() => setIsResettingPassword(false)} />;
+  }
+
+  if (isAccessDenied) {
+    return (
+      <div className="min-h-screen bg-[#0b1121] flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-[#0f172a] border border-rose-900/50 rounded-2xl p-8 text-center shadow-2xl">
+          <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-500/30">
+            <ShieldAlert size={40} className="text-rose-500" />
+          </div>
+          <h1 className="text-2xl font-bold text-white mb-4 uppercase tracking-widest digital-font">Acesso Negado</h1>
+          <p className="text-slate-400 text-sm mb-8 leading-relaxed">
+            O personagem <span className="text-cyan-400 font-bold">"{userName}"</span> não foi encontrado na lista de membros autorizados da guilda.
+          </p>
+          <div className="space-y-4">
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest">Entre em contato com um administrador para solicitar acesso.</p>
+            <button 
+              onClick={handleLogout}
+              className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold uppercase tracking-widest text-xs transition-all flex items-center justify-center gap-2"
+            >
+              <LogOut size={16} /> Sair da Conta
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return <LoginPage onLogin={() => setIsAuthenticated(true)} />;
   }
@@ -555,6 +627,7 @@ function App() {
             blockedUsers={blockedUsers}
             fixedRespawns={fixedRespawns}
             warnings={warnings}
+            guildMembers={guildMembers}
             onClose={() => setShowAdminPanel(false)}
             onForceDelete={handleAdminForceDelete}
             onRefreshData={refreshAllData}

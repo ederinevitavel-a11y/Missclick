@@ -64,42 +64,6 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       if (isRegister) {
         if (!name) throw new Error("O nome do personagem é obrigatório para o cadastro");
         
-        // --- Guild Membership Validation ---
-        const guilds = ['Missclick', 'Caxambu'];
-        let isMember = false;
-        let apiError = false;
-        
-        for (const guildName of guilds) {
-            try {
-                const response = await fetch(`https://api.tibiadata.com/v4/guild/${guildName}`);
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                const data = await response.json();
-                if (data && data.guild && data.guild.members) {
-                    const memberExists = data.guild.members.some((m: any) => 
-                        m.name.toLowerCase() === name.trim().toLowerCase()
-                    );
-                    if (memberExists) {
-                        isMember = true;
-                        break;
-                    }
-                }
-            } catch (err) {
-                console.error(`Failed to fetch guild ${guildName}:`, err);
-                apiError = true;
-            }
-        }
-
-        // Se a API do TibiaData falhar, permitimos o cadastro mas avisamos no log
-        // Isso evita que o usuário fique travado se o serviço externo cair
-        if (!isMember && !apiError) {
-            throw new Error(`O personagem "${name}" não foi encontrado nas guildas Missclick ou Caxambu.`);
-        }
-        
-        if (apiError && !isMember) {
-            console.warn("TibiaData API is down or unreachable. Proceeding with registration without guild validation.");
-        }
-        // --- End of Validation ---
-
         const { error: signUpError } = await supabase.auth.signUp({
           email,
           password,
