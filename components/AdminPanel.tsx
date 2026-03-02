@@ -43,7 +43,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
   const [memberSearch, setMemberSearch] = useState('');
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [isSavingMembers, setIsSavingMembers] = useState(false);
-  const [newManualMember, setNewManualMember] = useState('');
 
   // Respawn Management State
   const [newRespawn, setNewRespawn] = useState({ id: '', name: '', category: 'Darashia', tier: 1, isSpecial: false });
@@ -392,30 +391,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
         await onRefreshData();
     } catch (err: any) {
         alert("Erro ao alterar autorização: " + err.message);
-    }
-  };
-
-  const handleAddManualMember = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newManualMember.trim()) return;
-
-    try {
-        const { error } = await supabase
-            .from('guild_members')
-            .insert({ player_name: newManualMember.trim() });
-        
-        if (error) {
-            if (error.code === '23505') {
-                alert("Este jogador já está na lista.");
-            } else {
-                throw error;
-            }
-        } else {
-            setNewManualMember('');
-            await onRefreshData();
-        }
-    } catch (err: any) {
-        alert("Erro ao adicionar membro: " + err.message);
     }
   };
 
@@ -814,29 +789,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
         {activeTab === 'MEMBERS' && (
             <div className="space-y-4 animate-in slide-in-from-bottom-2 fade-in">
                 
-                {/* Manual Add Member */}
-                <div className="bg-slate-900/50 p-4 rounded border border-slate-800">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                        <Plus size={14} /> Adicionar Membro Manualmente
-                    </h3>
-                    <form onSubmit={handleAddManualMember} className="flex gap-2">
-                        <input 
-                            type="text" 
-                            placeholder="Nome do Personagem" 
-                            value={newManualMember}
-                            onChange={e => setNewManualMember(e.target.value)}
-                            className="flex-1 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
-                            required
-                        />
-                        <button 
-                            type="submit"
-                            className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-bold uppercase rounded transition-all"
-                        >
-                            Adicionar
-                        </button>
-                    </form>
-                </div>
-
                 {/* Control Bar */}
                 <div className="flex flex-col md:flex-row justify-between gap-4">
                     <div className="relative flex-1 max-w-md">
@@ -937,7 +889,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ claims, respawns, blockedUsers,
                                                 <div className="flex flex-col items-center">
                                                     <RefreshCw size={32} className="mb-3 opacity-20" />
                                                     <p className="uppercase tracking-widest font-bold text-xs mb-2">Lista da API Vazia</p>
-                                                    <p className="text-[10px] text-slate-600">Clique em Sync para carregar membros das guildas ou adicione manualmente.</p>
+                                                    <p className="text-[10px] text-slate-600">Clique em Sync para carregar membros das guildas.</p>
                                                 </div>
                                             ) : (
                                                 <p className="uppercase tracking-widest font-bold text-xs">Nenhum membro encontrado na busca.</p>
